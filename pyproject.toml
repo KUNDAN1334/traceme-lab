@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# F401 = unused import, F821 = undefined name. Both are on by default in `F`
+# and both are what the `lint_type` break trips.
+select = ["E", "F", "I"]
