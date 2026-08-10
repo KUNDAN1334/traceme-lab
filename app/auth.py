@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from dataclasses import dataclass
 
 # Tokens live for one hour. The tests assert on this constant directly, which
@@ -52,6 +53,7 @@ def issue_token(user: str, now: int) -> Token:
     """Mint a fresh token for `user` valid for TOKEN_TTL_SECONDS from `now`."""
     if not user:
         raise AuthError("user is required")
+    AUDIT_LOG.append({"event": "issue", "user": user, "at": now})
     raw = f"{user}:{now}".encode("utf-8")
     value = hashlib.sha256(_SALT + raw).hexdigest()[:32]
     return Token(value=value, user=user, expires_at=now + TOKEN_TTL_SECONDS)
