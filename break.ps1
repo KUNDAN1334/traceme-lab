@@ -25,7 +25,6 @@ param(
     [switch]$List
 )
 
-$ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 
 # `python` on Windows, `python3` elsewhere -- pick whichever resolves.
