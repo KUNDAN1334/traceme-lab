@@ -1,38 +1,71 @@
-"""A tiny fixed-window rate limiter.
+"""Token-bucket rate limiter.
 
-Nothing in the test-suite depends on this module. It exists so that the
-`subtle` break can put a large, loud, completely harmless diff hunk in front of
-the model while the real regression hides in a two-line change to auth.py.
+Replaces the old fixed-window counter, which rejected legitimate bursts that
+arrived right after a window boundary. Buckets refill continuously at
+`limit / window_seconds` tokens per second and are capped at `burst`.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from dataclasses import dataclass, field
 
 
+@dataclass
+class _Bucket:
+    tokens: float
+    updated_at: float
+
+
+@dataclass
 class RateLimiter:
-    """Fixed-window counter keyed by client id."""
+    """Continuously refilling token bucket keyed by client id."""
 
-    def __init__(self, limit: int = 60, window_seconds: int = 60) -> None:
-        self.limit = limit
-        self.window_seconds = window_seconds
-        self._hits: dict[str, list[int]] = defaultdict(list)
+    limit: int = 60
+    window_seconds: int = 60
+    burst: int | None = None
+    _buckets: dict[str, _Bucket] = field(default_factory=dict)
 
-    def _window_start(self, now: int) -> int:
-        return now - (now % self.window_seconds)
+    def __post_init__(self) -> None:
+        if self.limit <= 0:
+            raise ValueError("limit must be positive")
+        if self.window_seconds <= 0:
+            raise ValueError("window_seconds must be positive")
+        self._capacity = float(self.burst if self.burst is not None else self.limit)
+        self._rate = self.limit / self.window_seconds
 
-    def allow(self, client_id: str, now: int) -> bool:
-        """Record a hit and report whether the client is still under the limit."""
-        start = self._window_start(now)
-        hits = [t for t in self._hits[client_id] if t >= start]
-        hits.append(now)
-        self._hits[client_id] = hits
-        return len(hits) <= self.limit
+    def _bucket(self, client_id: str, now: float) -> _Bucket:
+        bucket = self._buckets.get(client_id)
+        if bucket is None:
+            bucket = _Bucket(tokens=self._capacity, updated_at=now)
+            self._buckets[client_id] = bucket
+        return bucket
 
-    def remaining(self, client_id: str, now: int) -> int:
-        start = self._window_start(now)
-        used = len([t for t in self._hits[client_id] if t >= start])
-        return max(0, self.limit - used)
+    def _refill(self, bucket: _Bucket, now: float) -> None:
+        elapsed = max(0.0, now - bucket.updated_at)
+        bucket.tokens = min(self._capacity, bucket.tokens + elapsed * self._rate)
+        bucket.updated_at = now
+
+    def allow(self, client_id: str, now: float) -> bool:
+        """Spend one token; report whether the client was under the limit."""
+        bucket = self._bucket(client_id, now)
+        self._refill(bucket, now)
+        if bucket.tokens < 1.0:
+            return False
+        bucket.tokens -= 1.0
+        return True
+
+    def remaining(self, client_id: str, now: float) -> int:
+        bucket = self._bucket(client_id, now)
+        self._refill(bucket, now)
+        return int(bucket.tokens)
+
+    def retry_after(self, client_id: str, now: float) -> float:
+        """Seconds until one more token is available. 0.0 when allowed now."""
+        bucket = self._bucket(client_id, now)
+        self._refill(bucket, now)
+        if bucket.tokens >= 1.0:
+            return 0.0
+        return (1.0 - bucket.tokens) / self._rate
 
     def reset(self, client_id: str) -> None:
-        self._hits.pop(client_id, None)
+        self._buckets.pop(client_id, None)

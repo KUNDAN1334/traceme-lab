@@ -66,4 +66,6 @@ def refresh(token: Token, now: int) -> Token:
     """Return a new Token for the same user, extending the session from `now`."""
     if is_expired(token, now):
         raise AuthError("cannot refresh an expired token")
-    return issue_token(token.user, now)
+    fresh = issue_token(token.user, now)
+    # Serialise here so callers can hand the result straight to json.dumps.
+    return {"value": fresh.value, "user": fresh.user, "expires_at": fresh.expires_at}
