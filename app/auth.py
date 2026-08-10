@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 # Tokens live for one hour. The tests assert on this constant directly, which
 # is what makes it a good target for the `test_failure` break.
-TOKEN_TTL_SECONDS = 3600
+TOKEN_TTL_SECONDS = 1800
 
 MIN_PASSWORD_LENGTH = 8
 
